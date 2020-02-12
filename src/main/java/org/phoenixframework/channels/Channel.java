@@ -230,7 +230,7 @@ public class Channel {
         return push(event, null);
     }
 
-    private void rejoin() throws IOException {
+    public void rejoin() throws IOException {
         this.sendJoin();
         while (!this.pushBuffer.isEmpty()) {
             this.pushBuffer.removeFirst().send();
