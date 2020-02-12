@@ -230,7 +230,7 @@ public class Channel {
         return push(event, null);
     }
 
-    private void rejoin() throws IOException {
+    public void rejoin() throws IOException {
         this.sendJoin();
         while (!this.pushBuffer.isEmpty()) {
             this.pushBuffer.removeFirst().send();
@@ -282,18 +282,20 @@ public class Channel {
         }
     }
 
-    private void scheduleRejoinTimer() {
-        final TimerTask rejoinTimerTask = new TimerTask() {
-            @Override
-            public void run() {
-                try {
-                    Channel.this.rejoinUntilConnected();
-                } catch (IOException e) {
-                    log.error("Failed to rejoin", e);
+    public void scheduleRejoinTimer() {
+        if (socket.shouldAutoRejoinChannels()) {
+            final TimerTask rejoinTimerTask = new TimerTask() {
+                @Override
+                public void run() {
+                    try {
+                        Channel.this.rejoinUntilConnected();
+                    } catch (IOException e) {
+                        log.error("Failed to rejoin", e);
+                    }
                 }
-            }
-        };
-        scheduleTask(rejoinTimerTask, Socket.RECONNECT_INTERVAL_MS);
+            };
+            scheduleTask(rejoinTimerTask, this.socket.getReconnectInterval());
+        }
     }
 
     private void sendJoin() throws IOException {
