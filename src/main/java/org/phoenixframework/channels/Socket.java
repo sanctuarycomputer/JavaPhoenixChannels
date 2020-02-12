@@ -91,12 +91,14 @@ public class Socket {
         }
 
         @Override
-        public void onFailure(WebSocket webSocket, Throwable t, Response response) {
+        public void onFailure(final WebSocket webSocket, Throwable t, Response response) {
             log.warn("WebSocket connection error", t);
+
             try {
                 //TODO if there are multiple errorCallbacks do we really want to trigger
                 //the same channel error callbacks multiple times?
                 triggerChannelError();
+
                 for (final IErrorCallback callback : errorCallbacks) {
                     callback.onError(t.getMessage());
                 }
@@ -109,14 +111,12 @@ public class Socket {
                         Socket.this.webSocket = null;
                     }
                 }
-                if (reconnectOnFailure) {
-                    scheduleReconnectTimer();
-                }
+                scheduleReconnectTimer();
             }
         }
     }
 
-    public static final int RECONNECT_INTERVAL_MS = 5000;
+    private static final int DEFAULT_RECONNECT_INTERVAL = 5000;
 
     private static final int DEFAULT_HEARTBEAT_INTERVAL = 7000;
 
@@ -125,6 +125,8 @@ public class Socket {
     private String endpointUri = null;
 
     private final Set<IErrorCallback> errorCallbacks = Collections.newSetFromMap(new HashMap<IErrorCallback, Boolean>());
+
+    private static int reconnectInterval = DEFAULT_RECONNECT_INTERVAL;
 
     private final int heartbeatInterval;
 
@@ -136,7 +138,9 @@ public class Socket {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private boolean reconnectOnFailure = true;
+    private static boolean autoReconnectSocket = true;
+
+    private static boolean autoRejoinChannels = true;
 
     private TimerTask reconnectTimerTask = null;
 
@@ -288,13 +292,42 @@ public class Socket {
     }
 
     /**
-     * Should the socket attempt to reconnect if websocket.onFailure is called.
+     * Set the reconnect interval for the socket
+     * and the rejoin interval for socket channels.
+     * Defaults to this.DEFAULT_RECONNECT_INTERVAL
      *
-     * @param reconnectOnFailure reconnect value
+     * @param reconnectInterval interval in milliseconds
      */
-    public void reconectOnFailure(final boolean reconnectOnFailure) {
-        this.reconnectOnFailure = reconnectOnFailure;
+
+    public void setReconnectInterval(final int reconnectInterval) {
+        this.reconnectInterval = reconnectInterval;
     }
+
+    /**
+     * Query the reconnect interval for the socket and rejoin
+     * inteval for its channels. This may be updated over the lifetime of the
+     * socket in response to events (e.g. network connection lost).
+     * Defaults to this.DEFAULT_RECONNECT_INTERVAL.
+     *
+     * @return interval in milliseconds
+     */
+
+    public int getReconnectInterval() {
+        return this.reconnectInterval;
+    }
+
+    public void autoReconnectSocket(final boolean autoReconnectSocket) {
+        this.autoReconnectSocket = autoReconnectSocket;
+    }
+
+    public boolean shouldAutoReconnectSocket() { return this.autoReconnectSocket; }
+
+    public void autoRejoinChannels(final boolean autoRejoinChannels) {
+        this.autoRejoinChannels = autoRejoinChannels;
+    }
+
+    public boolean shouldAutoRejoinChannels() { return this.autoRejoinChannels; }
+
 
     /**
      * Removes the specified channel if it is known to the socket
@@ -356,22 +389,23 @@ public class Socket {
      * Sets up and schedules a timer task to make repeated reconnect attempts at configured
      * intervals
      */
-    private void scheduleReconnectTimer() {
+    public void scheduleReconnectTimer() {
         cancelReconnectTimer();
         cancelHeartbeatTimer();
-
-        Socket.this.reconnectTimerTask = new TimerTask() {
-            @Override
-            public void run() {
-                log.trace("reconnectTimerTask run");
-                try {
-                    Socket.this.connect();
-                } catch (Exception e) {
-                    log.error("Failed to reconnect to " + Socket.this.wsListener, e);
+        if (shouldAutoReconnectSocket()) {
+            Socket.this.reconnectTimerTask = new TimerTask() {
+                @Override
+                public void run() {
+                    log.trace("reconnectTimerTask run");
+                    try {
+                        Socket.this.connect();
+                    } catch (Exception e) {
+                        log.error("Failed to reconnect to " + Socket.this.wsListener, e);
+                    }
                 }
-            }
-        };
-        timer.schedule(Socket.this.reconnectTimerTask, RECONNECT_INTERVAL_MS);
+            };
+            timer.schedule(Socket.this.reconnectTimerTask, getReconnectInterval());
+        }
     }
 
     private void startHeartbeatTimer() {
